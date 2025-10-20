@@ -1,1 +1,180 @@
+#include <SFML/Graphics.hpp>
+#include <array>
+#include <string>
+#include <sstream>
 
+using namespace std;
+
+enum class Light { Red, Yellow, Green };
+
+struct TrafficSignal {
+    Light vehicle = Light::Red;
+    Light pedestrian = Light::Red;
+    int timer = 0;
+    bool pedestrianRequest = false;
+};
+
+sf::Color lightColor(Light l) {
+    if (l == Light::Red) return sf::Color(200, 20, 20);
+    if (l == Light::Yellow) return sf::Color(240, 200, 40);
+    return sf::Color(80, 200, 80);
+}
+
+struct VisualSignal {
+    sf::RectangleShape housing;
+    sf::CircleShape vehicleLight;
+    sf::CircleShape pedestrianLight;
+    sf::Text timerText;
+};
+
+void setupVisual(VisualSignal &vs, sf::Font &font, float x, float y) {
+    vs.housing.setSize({120.f, 160.f});
+    vs.housing.setFillColor(sf::Color(40, 40, 40));
+    vs.housing.setPosition(x, y);
+
+    vs.vehicleLight.setRadius(28.f);
+    vs.vehicleLight.setOrigin({28.f,28.f});
+    vs.vehicleLight.setPosition(x + 40.f, y + 40.f);
+
+    vs.pedestrianLight.setRadius(18.f);
+    vs.pedestrianLight.setOrigin({18.f,18.f});
+    vs.pedestrianLight.setPosition(x + 86.f, y + 60.f);
+
+    vs.timerText.setFont(font);
+    vs.timerText.setCharacterSize(18);
+    vs.timerText.setFillColor(sf::Color::White);
+    vs.timerText.setPosition(x + 10.f, y + 110.f);
+}
+
+string toStr(int v) {
+    ostringstream os;
+    os << v << "s";
+    return os.str();
+}
+
+int main() {
+    const unsigned WIDTH = 900, HEIGHT = 420;
+    sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Simulacija Semafora");
+    window.setFramerateLimit(60);
+
+    sf::Font font;
+    if (!font.loadFromFile("arial.ttf")) {
+        return -1;
+    }
+
+    array<TrafficSignal,4> signals;
+    array<VisualSignal,4> visuals;
+
+    for (int i=0;i<4;++i) {
+        signals[i].vehicle = (i==1 || i==2) ? Light::Green : Light::Red;
+        signals[i].pedestrian = Light::Red;
+        signals[i].timer = (signals[i].vehicle == Light::Green) ? 12 : 12;
+
+        float x = 50.f + i * 200.f;
+        float y = 120.f;
+        setupVisual(visuals[i], font, x, y);
+    }
+
+    int active = 1;
+    sf::Clock secClock;
+    float accumulator = 0.f;
+
+    const int GREEN_TIME = 12;
+    const int YELLOW_TIME = 3;
+    const int RED_PEDESTRIAN_TIME = 8;
+
+    while (window.isOpen()) {
+        sf::Event ev;
+        while (window.pollEvent(ev)) {
+            if (ev.type == sf::Event::Closed) window.close();
+            if (ev.type == sf::Event::KeyPressed) {
+                if (ev.key.code == sf::Keyboard::Num0) signals[0].pedestrianRequest = true;
+                if (ev.key.code == sf::Keyboard::Num1) signals[1].pedestrianRequest = true;
+                if (ev.key.code == sf::Keyboard::Num2) signals[2].pedestrianRequest = true;
+                if (ev.key.code == sf::Keyboard::Num3) signals[3].pedestrianRequest = true;
+                if (ev.key.code == sf::Keyboard::Space) signals[active].pedestrianRequest = true;
+            }
+        }
+
+        float dt = secClock.restart().asSeconds();
+        accumulator += dt;
+        while (accumulator >= 1.f) {
+            accumulator -= 1.f;
+
+            signals[active].timer = max(0, signals[active].timer - 1);
+
+            if (signals[active].vehicle == Light::Green && signals[active].timer == 0) {
+                signals[active].vehicle = Light::Yellow;
+                signals[active].timer = YELLOW_TIME;
+            } else if (signals[active].vehicle == Light::Yellow && signals[active].timer == 0) {
+                signals[active].vehicle = Light::Red;
+                if (signals[active].pedestrianRequest) {
+                    signals[active].pedestrian = Light::Green;
+                    signals[active].timer = RED_PEDESTRIAN_TIME;
+                } else {
+                    signals[active].pedestrian = Light::Red;
+                    signals[active].timer = GREEN_TIME;
+                }
+            } else if (signals[active].pedestrian == Light::Green && signals[active].timer == 0) {
+                signals[active].pedestrian = Light::Red;
+                signals[active].pedestrianRequest = false;
+                active = (active + 1) % 4;
+                signals[active].vehicle = Light::Green;
+                signals[active].pedestrian = Light::Red;
+                signals[active].timer = GREEN_TIME;
+            } else if (signals[active].vehicle == Light::Red && signals[active].timer == 0) {
+                active = (active + 1) % 4;
+                signals[active].vehicle = Light::Green;
+                signals[active].pedestrian = Light::Red;
+                signals[active].timer = GREEN_TIME;
+            }
+        }
+
+        window.clear(sf::Color(20,20,20));
+
+        sf::Text title("Simulacija Semafora", font, 24);
+        title.setFillColor(sf::Color::White);
+        title.setPosition(300.f, 15.f);
+        window.draw(title);
+
+        for (int i=0;i<4;++i) {
+            visuals[i].vehicleLight.setFillColor(lightColor(signals[i].vehicle));
+            visuals[i].pedestrianLight.setFillColor(lightColor(signals[i].pedestrian));
+
+            if (i == active) {
+                visuals[i].housing.setOutlineThickness(3.f);
+                visuals[i].housing.setOutlineColor(sf::Color(160,160,255));
+            } else {
+                visuals[i].housing.setOutlineThickness(0.f);
+            }
+
+            visuals[i].timerText.setString(toStr(signals[i].timer));
+
+            window.draw(visuals[i].housing);
+            window.draw(visuals[i].vehicleLight);
+            window.draw(visuals[i].pedestrianLight);
+            window.draw(visuals[i].timerText);
+
+            sf::Text label;
+            label.setFont(font);
+            label.setCharacterSize(14);
+            label.setFillColor(sf::Color::White);
+            const char* names[4] = {"Sever", "Jug", "Istok", "Zapad"};
+            label.setString(names[i]);
+            label.setPosition(visuals[i].housing.getPosition().x + 10.f, visuals[i].housing.getPosition().y - 22.f);
+            window.draw(label);
+
+            sf::Text instr;
+            instr.setFont(font);
+            instr.setCharacterSize(12);
+            instr.setFillColor(sf::Color(200,200,200));
+            instr.setString("Pritisni 0-3 ili Space za zahtev");
+            instr.setPosition(10.f, HEIGHT - 24.f);
+            window.draw(instr);
+        }
+
+        window.display();
+    }
+
+    return 0;
+}
